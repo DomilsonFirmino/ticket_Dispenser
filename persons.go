@@ -15,11 +15,18 @@ type person struct {
 	Age       int    `json:"age"`
 }
 
+type PersonJsonResponse struct {
+	JsonResponse
+	Data []person `json:"data"`
+}
+
 type PersonsSingleResponse struct {
+	JsonResponse
 	Data PersonsResponse `json:"data"`
 }
 
 type PersonsMultipleResponse struct {
+	JsonResponse
 	Data []PersonsResponse `json:"data"`
 }
 
@@ -37,9 +44,6 @@ func AddPerson(w http.ResponseWriter, r *http.Request) {
 	contentType := r.Header.Get("Content-type")
 
 	var personS person
-
-	// adicionados se corretos, garantir concorrencia
-	fmt.Println("Body:", r.Body)
 
 	if !strings.HasPrefix(contentType, "application/json") {
 		w.WriteHeader(http.StatusUnsupportedMediaType)
@@ -82,12 +86,117 @@ func AddPerson(w http.ResponseWriter, r *http.Request) {
 	pessoaCounter = pessoaCounter + 1
 
 	response := PersonsSingleResponse{
+		Sucess:  true,
+		Message: "Utilizador criado com sucesso",
 		Data: PersonsResponse{
 			Type:       "person",
 			Id:         strconv.Itoa(pessoaCounter - 1),
 			Attributes: personS,
 		},
 	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+func UpdatePerson(w http.ResponseWriter, r *http.Request) {
+	// bloqueio de acesso, escrita multipla
+	mu.Lock()
+	defer mu.Unlock()
+
+	//validar o id se existe, se nao existe devolver erro
+	id, err := strconv.Atoi(r.PathValue("id"))
+
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(JsonResponse{
+			Sucess:  false,
+			Message: "invalid id" + err.Error(),
+		})
+		return
+	}
+
+	PersonF, ok := pessoas[id]
+
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(JsonResponse{
+			Sucess:  false,
+			Message: "Not found",
+		})
+		return
+	}
+
+	//validar se o content type é json
+	contentType := r.Header.Get("Content-type")
+
+	if !strings.HasPrefix(contentType, "application/json") {
+		w.WriteHeader(http.StatusUnsupportedMediaType)
+		json.NewEncoder(w).Encode(JsonResponse{
+			Sucess:  false,
+			Message: "Unsupported Media Type: Expected application/json",
+		})
+		return
+	}
+
+	var personS person
+	// validar se o body é json, se nao for devolver erro
+
+	decodeErr := json.NewDecoder(r.Body).Decode(&personS)
+
+	fmt.Println("personS dados recebidos: ", personS, "PersonF dados encontrados: ", PersonF)
+
+	if decodeErr != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(JsonResponse{
+			Sucess:  false,
+			Message: decodeErr.Error(),
+		})
+		return
+	}
+
+	// atualizar o utilizador com os novos dados
+	var changeCounter int = 0
+
+	if personS.Firstname != "" && personS.Firstname != PersonF.Firstname {
+		PersonF.Firstname = personS.Firstname
+	} else if personS.Firstname == PersonF.Firstname {
+		changeCounter++
+	}
+
+	if personS.Lastname != "" && personS.Lastname != PersonF.Lastname {
+		PersonF.Lastname = personS.Lastname
+	} else if personS.Lastname == PersonF.Lastname {
+		changeCounter++
+	}
+
+	if personS.Age != 0 && personS.Age != PersonF.Age {
+		PersonF.Age = personS.Age
+	} else if personS.Age == PersonF.Age {
+		changeCounter++
+	}
+
+	if changeCounter == 3 {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(JsonResponse{
+			Sucess:  false,
+			Message: "No changes made to the user",
+		})
+		return
+	}
+	// atualizar no mapa
+	pessoas[id] = PersonF
+
+	// devolver o utilizador atualizado
+	response := PersonsSingleResponse{
+		Sucess:  true,
+		Message: "Utilizador Atualizado com sucessso",
+		Data: PersonsResponse{
+			Type:       "person",
+			Id:         strconv.Itoa(id),
+			Attributes: PersonF,
+		},
+	}
+
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response)
 }
@@ -123,6 +232,8 @@ func GetPerson(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := PersonsSingleResponse{
+		Sucess:  true,
+		Message: "Utilizador recuperado com sucessso",
 		Data: PersonsResponse{
 			Type:       "person",
 			Id:         strconv.Itoa(id),
@@ -151,7 +262,9 @@ func GetAllPersons(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := PersonsMultipleResponse{
-		Data: persons,
+		Sucess:  true,
+		Message: "Utilizdores encontrados com sucesso",
+		Data:    persons,
 	}
 
 	json.NewEncoder(w).Encode(response)
