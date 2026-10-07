@@ -12,6 +12,8 @@ type JsonResponse struct {
 }
 
 func main() {
+
+	connectToDatabase()
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /person", AddPerson)
